@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stacking Game – Drag & Drop</title>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.js"></script>
+<style>
+  html,body { margin:0; padding:0; height:100%; background:#222; }
+  #gameContainer { width:100%; height:100%; }
+</style>
+</head>
+<body>
+<div id="gameContainer"></div>
+
+<script>
+/* ---------- Phaser config ---------- */
+const config = {
+  type: Phaser.AUTO,
+  parent: 'gameContainer',
+  backgroundColor: '#4174cf',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: 800,
+    height: 600
+  },
+  physics: {
+    default: 'matter',
+    matter: { gravity: { y: 1 }, debug: false }
+  },
+  scene: { preload, create, update }
+};
+
+new Phaser.Game(config);
+
+/* ---------- Globals ---------- */
+let scoreText, blocksGroup, base, score = 0;
+let draggingClone = null;
+const paletteY = 70; // y position of palette row
+
+function preload() {}
+
+/* ---------- create() ---------- */
+function create() {
+  const scene = this;
+  const { width, height } = scene.scale;
+
+  // Base platform (static) - 75% width, centered
+  base = scene.add.rectangle(width/2, height - 40, width * 0.75, 40, 0x11182a);
+  scene.matter.add.gameObject(base, { isStatic: true });
+
+  // Score text
+  scoreText = scene.add.text(width - 160, 20, 'Score: 0', { fontSize: '24px', fill: '#fff' });
+
+  // Restart button
+  const restartBtn = scene.add.text(20, 20, 'Restart', {
+    fontSize: '20px', fill: '#fff', backgroundColor: '#000', padding: { x: 8, y: 4 }
+  }).setInteractive({ useHandCursor: true })
+    .on('pointerdown', () => restartGame.call(scene));
+
+  // Group to track blocks we spawn
+  blocksGroup = scene.add.group();
+
+  // Palette sizes (five shapes)
+  const sizes = [
+    { w: 60, h: 30 }, { w: 80, h: 40 }, { w: 100, h: 30 },
+    { w: 50, h: 50 }, { w: 120, h: 20 }
+  ];
+
+  sizes.forEach((s, i) => {
+    const x = 90 + i * 120;
+    const shape = scene.add.rectangle(x, paletteY, s.w, s.h, 0x374d9d)
+      .setStrokeStyle(2, 0xffffff)
+      .setInteractive();
+
+    // When user presses a palette shape, create a draggable clone that follows the pointer
+    shape.on('pointerdown', (pointer) => {
+      // destroy any previous clone just in case
+      if (draggingClone) draggingClone.destroy();
+
+      draggingClone = scene.add.rectangle(pointer.x, pointer.y, s.w, s.h, 0x374d9d)
+        .setStrokeStyle(2, 0xffffff);
+      draggingClone.isClone = true;
+    });
+  });
+
+  // Pointer move: move clone with finger/mouse
+  scene.input.on('pointermove', (pointer) => {
+    if (draggingClone) {
+      draggingClone.x = pointer.x;
+      draggingClone.y = pointer.y;
+    }
+  });
+
+  // Pointer up: drop clone — add physics body if dropped outside palette row
+  scene.input.on('pointerup', (pointer) => {
+    if (!draggingClone) return;
+
+    // if dropped below the palette area, add to physics world
+    if (pointer.y > paletteY + 30) {
+      scene.matter.add.gameObject(draggingClone);
+      blocksGroup.add(draggingClone);
+
+      // if it ever gets removed from world (falls out), subtract one
+      draggingClone.once('removedfromworld', () => changeScore(-1));
+
+      // update score immediately (counts visible blocks)
+      updateScore(scene);
+    } else {
+      // dropped back on palette — just destroy the clone
+      draggingClone.destroy();
+    }
+
+    draggingClone = null;
+  });
+}
+
+/* ---------- update() ---------- */
+function update() {
+  // Pass the scene into updateScore so it can use scene.scale safely
+  updateScore(this);
+}
+
+/* ---------- Helpers ---------- */
+function updateScore(scene) {
+  // IMPORTANT: use the scene passed in (not `this` inside this global function)
+  const { height } = scene.scale;
+  // count blocks that are still above the bottom of the screen
+  const count = blocksGroup.getChildren()
+    .filter(b => b && b.y < height + 1)
+    .length;
+
+  if (count !== score) {
+    score = count;
+    scoreText.setText('Score: ' + score);
+  }
+}
+
+function changeScore(delta) {
+  score = Math.max(0, score + delta);
+  scoreText.setText('Score: ' + score);
+}
+
+function restartGame() {
+  // `this` is the scene because we call restartGame.call(scene)
+  const scene = this;
+  // remove matter bodies and destroy sprites
+  blocksGroup.getChildren().forEach(b => {
+    if (b && b.body) scene.matter.world.remove(b.body);
+    if (b && b.destroy) b.destroy();
+  });
+  blocksGroup.clear(true);
+  score = 0;
+  scoreText.setText('Score: 0');
+}
+</script>
+</body>
+</html>
